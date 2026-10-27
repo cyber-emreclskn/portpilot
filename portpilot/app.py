@@ -1,99 +1,50 @@
-"""PortPilot - Interactive Terminal UI for Port Management"""
+"""PortPilot - Interactive Terminal UI for Port Management."""
 
-import os
-import signal
-from datetime import datetime
+from __future__ import annotations
 
-import psutil
+from typing import ClassVar
+
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
+from .core import (
+    COMMON_PORTS,
+    PortInfo,
+    filter_connections,
+    get_listening_ports,
+    kill_process,
+)
 
-def get_listening_ports():
-    """Get all listening ports with process information."""
-    connections = []
+# Re-exported for backwards compatibility with code importing from portpilot.app
+__all__ = ["ConfirmKillScreen", "PortPilotApp", "get_listening_ports", "kill_process", "main"]
 
-    for conn in psutil.net_connections(kind="inet"):
-        if conn.status == "LISTEN":
-            try:
-                proc = psutil.Process(conn.pid) if conn.pid else None
-                connections.append(
-                    {
-                        "port": conn.laddr.port,
-                        "ip": conn.laddr.ip,
-                        "pid": conn.pid or "-",
-                        "name": proc.name() if proc else "-",
-                        "cmdline": " ".join(proc.cmdline()[:3]) if proc else "-",
-                        "user": proc.username() if proc else "-",
-                        "created": datetime.fromtimestamp(proc.create_time()).strftime("%H:%M:%S")
-                        if proc
-                        else "-",
-                        "memory": f"{proc.memory_info().rss / 1024 / 1024:.1f}MB" if proc else "-",
-                    }
-                )
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                connections.append(
-                    {
-                        "port": conn.laddr.port,
-                        "ip": conn.laddr.ip,
-                        "pid": conn.pid or "-",
-                        "name": "-",
-                        "cmdline": "-",
-                        "user": "-",
-                        "created": "-",
-                        "memory": "-",
-                    }
-                )
-
-    return sorted(connections, key=lambda x: x["port"])
+COMMAND_WIDTH = 40
 
 
-def kill_process(pid: int, force: bool = False) -> tuple[bool, str]:
-    """Kill a process by PID."""
-    try:
-        proc = psutil.Process(pid)
-        proc_name = proc.name()
-
-        if force:
-            proc.kill()  # SIGKILL
-        else:
-            proc.terminate()  # SIGTERM
-
-        proc.wait(timeout=3)
-        return True, f"Process {proc_name} (PID: {pid}) terminated"
-    except psutil.NoSuchProcess:
-        return False, f"Process {pid} not found"
-    except psutil.AccessDenied:
-        return False, f"Access denied for PID {pid}. Try running with sudo."
-    except psutil.TimeoutExpired:
-        return False, f"Process {pid} didn't terminate in time. Try force kill."
-    except Exception as e:
-        return False, f"Error: {str(e)}"
-
-
-class ConfirmKillScreen(ModalScreen):
+class ConfirmKillScreen(ModalScreen[bool]):
     """Modal screen for kill confirmation."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("y", "confirm", "Yes"),
         Binding("n", "cancel", "No"),
         Binding("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, port: int, pid: int, name: str):
+    def __init__(self, port: int, pid: int, process_name: str) -> None:
         super().__init__()
         self.port = port
         self.pid = pid
-        self.name = name
+        # Note: don't assign to ``self.name`` - it's a read-only property on Textual screens.
+        self.process_name = process_name
 
     def compose(self) -> ComposeResult:
         with Container(id="confirm-dialog"):
             yield Static(f"⚠️  Kill process on port {self.port}?", id="confirm-title")
-            yield Static(f"Process: {self.name}", classes="confirm-detail")
+            yield Static(f"Process: {self.process_name}", classes="confirm-detail")
             yield Static(f"PID: {self.pid}", classes="confirm-detail")
             with Horizontal(id="confirm-buttons"):
                 yield Button("Yes [y]", variant="error", id="yes-btn")
@@ -112,8 +63,11 @@ class ConfirmKillScreen(ModalScreen):
         self.dismiss(False)
 
 
-class PortPilotApp(App):
+class PortPilotApp(App[None]):
     """Main PortPilot Application."""
+
+    TITLE = "🛫 PortPilot"
+    SUB_TITLE = "listening ports"
 
     CSS = """
     Screen {
@@ -194,22 +148,21 @@ class PortPilotApp(App):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("k", "kill_selected", "Kill"),
         Binding("K", "force_kill", "Force Kill"),
         Binding("f", "focus_filter", "Filter"),
-        Binding("/", "focus_filter", "Filter"),
+        Binding("/", "focus_filter", "Filter", show=False),
         Binding("escape", "clear_filter", "Clear Filter"),
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.connections = []
+        self.connections: list[PortInfo] = []
+        self.visible_rows: list[PortInfo] = []
         self.filter_text = ""
-        self.status_message = ""
-        self.status_class = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -223,14 +176,18 @@ class PortPilotApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Initialize the data table."""
-        table = self.query_one("#port-table", DataTable)
+        # Keep direct references: while a modal is open, ``query_one`` searches the
+        # modal screen on some Textual versions and wouldn't find these widgets.
+        self.table: DataTable[Text | str] = self.query_one("#port-table", DataTable)
+        self.filter_input = self.query_one("#filter-input", Input)
+        self.stats = self.query_one("#stats", Static)
+        self.status_bar = self.query_one("#status-bar", Static)
+        table = self.table
         table.cursor_type = "row"
         table.zebra_stripes = True
-
         table.add_columns("Port", "IP", "PID", "Process", "Command", "User", "Started", "Memory")
-
         self.action_refresh()
+        table.focus()
 
     def action_refresh(self) -> None:
         """Refresh the port list."""
@@ -239,160 +196,109 @@ class PortPilotApp(App):
         self.update_status("Refreshed", "status-success")
 
     def update_table(self) -> None:
-        """Update the table with current connections."""
-        table = self.query_one("#port-table", DataTable)
+        """Rebuild the table from current connections and filter."""
+        table = self.table
         table.clear()
+        self.visible_rows = filter_connections(self.connections, self.filter_text)
 
-        filtered = self.connections
-        if self.filter_text:
-            filter_lower = self.filter_text.lower()
-            filtered = [
-                c
-                for c in self.connections
-                if (
-                    filter_lower in str(c["port"])
-                    or filter_lower in str(c["name"]).lower()
-                    or filter_lower in str(c["pid"])
-                    or filter_lower in str(c["cmdline"]).lower()
-                )
-            ]
-
-        for conn in filtered:
+        for conn in self.visible_rows:
             port_text = Text(str(conn["port"]))
-
-            # Highlight common dev ports
-            common_ports = {
-                3000: "green",
-                3001: "green",  # React/Next.js
-                5000: "cyan",
-                5001: "cyan",  # Flask
-                8000: "yellow",
-                8080: "yellow",  # Django/General
-                5432: "magenta",  # PostgreSQL
-                6379: "red",  # Redis
-                27017: "green",  # MongoDB
-            }
-
-            if conn["port"] in common_ports:
-                port_text.stylize(common_ports[conn["port"]])
-
+            color = COMMON_PORTS.get(conn["port"])
+            if color:
+                port_text.stylize(color)
+            cmd = conn["cmdline"]
+            if len(cmd) > COMMAND_WIDTH:
+                cmd = cmd[:COMMAND_WIDTH] + "..."
             table.add_row(
                 port_text,
                 conn["ip"],
                 str(conn["pid"]),
                 conn["name"],
-                conn["cmdline"][:40] + ("..." if len(conn["cmdline"]) > 40 else ""),
+                cmd,
                 conn["user"],
                 conn["created"],
                 conn["memory"],
             )
 
-        # Update stats
-        stats = self.query_one("#stats", Static)
-        stats.update(f"📊 {len(filtered)}/{len(self.connections)} ports")
+        self.stats.update(f"📊 {len(self.visible_rows)}/{len(self.connections)} ports")
 
     def update_status(self, message: str, css_class: str = "") -> None:
-        """Update the status bar."""
-        status = self.query_one("#status-bar", Static)
+        status = self.status_bar
         status.update(message)
         status.remove_class("status-success", "status-error")
         if css_class:
             status.add_class(css_class)
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle filter input changes."""
         if event.input.id == "filter-input":
             self.filter_text = event.value
             self.update_table()
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "filter-input":
+            self.table.focus()
+
     def action_focus_filter(self) -> None:
-        """Focus the filter input."""
-        self.query_one("#filter-input", Input).focus()
+        self.filter_input.focus()
 
     def action_clear_filter(self) -> None:
-        """Clear the filter."""
-        filter_input = self.query_one("#filter-input", Input)
-        filter_input.value = ""
+        self.filter_input.value = ""
         self.filter_text = ""
         self.update_table()
-        self.query_one("#port-table", DataTable).focus()
+        self.table.focus()
 
-    def get_selected_connection(self):
-        """Get the currently selected connection."""
-        table = self.query_one("#port-table", DataTable)
-        if table.cursor_row is None:
-            return None
-
-        # Get filtered connections
-        filtered = self.connections
-        if self.filter_text:
-            filter_lower = self.filter_text.lower()
-            filtered = [
-                c
-                for c in self.connections
-                if (
-                    filter_lower in str(c["port"])
-                    or filter_lower in str(c["name"]).lower()
-                    or filter_lower in str(c["pid"])
-                    or filter_lower in str(c["cmdline"]).lower()
-                )
-            ]
-
-        if 0 <= table.cursor_row < len(filtered):
-            return filtered[table.cursor_row]
+    def get_selected_connection(self) -> PortInfo | None:
+        """Return the connection under the table cursor, if any."""
+        row = self.table.cursor_row
+        if row is not None and 0 <= row < len(self.visible_rows):
+            return self.visible_rows[row]
         return None
 
-    def action_kill_selected(self) -> None:
-        """Kill the selected process."""
+    def _selected_target(self) -> PortInfo | None:
         conn = self.get_selected_connection()
-        if not conn or conn["pid"] == "-":
+        if conn is None or not isinstance(conn["pid"], int):
             self.update_status("No process selected or PID unavailable", "status-error")
-            return
+            return None
+        return conn
 
-        self.push_screen(
-            ConfirmKillScreen(conn["port"], conn["pid"], conn["name"]), self.handle_kill_confirm
-        )
+    def _kill(self, conn: PortInfo, *, force: bool) -> None:
+        assert isinstance(conn["pid"], int)
+        success, message = kill_process(conn["pid"], force=force)
+        if success:
+            verb = "🔥 Force killed" if force else "✅ Killed"
+            self.update_status(f"{verb}: {conn['name']} on port {conn['port']}", "status-success")
+            self.connections = get_listening_ports()
+            self.update_table()
+        else:
+            self.update_status(f"❌ {message}", "status-error")
+
+    def action_kill_selected(self) -> None:
+        """Ask for confirmation, then terminate the selected process."""
+        conn = self._selected_target()
+        if conn is None:
+            return
+        assert isinstance(conn["pid"], int)
+
+        # Capture the target now so a refresh while the dialog is open can't
+        # change which process gets killed.
+        def on_result(confirmed: bool | None) -> None:
+            if confirmed:
+                self._kill(conn, force=False)
+            else:
+                self.update_status("Kill cancelled")
+
+        self.push_screen(ConfirmKillScreen(conn["port"], conn["pid"], conn["name"]), on_result)
 
     def action_force_kill(self) -> None:
-        """Force kill the selected process."""
-        conn = self.get_selected_connection()
-        if not conn or conn["pid"] == "-":
-            self.update_status("No process selected or PID unavailable", "status-error")
-            return
-
-        success, message = kill_process(int(conn["pid"]), force=True)
-        if success:
-            self.update_status(
-                f"🔥 Force killed: {conn['name']} on port {conn['port']}", "status-success"
-            )
-            self.action_refresh()
-        else:
-            self.update_status(f"❌ {message}", "status-error")
-
-    def handle_kill_confirm(self, confirmed: bool) -> None:
-        """Handle the kill confirmation result."""
-        if not confirmed:
-            self.update_status("Kill cancelled", "")
-            return
-
-        conn = self.get_selected_connection()
-        if not conn:
-            return
-
-        success, message = kill_process(int(conn["pid"]))
-        if success:
-            self.update_status(
-                f"✅ Killed: {conn['name']} on port {conn['port']}", "status-success"
-            )
-            self.action_refresh()
-        else:
-            self.update_status(f"❌ {message}", "status-error")
+        """Force kill the selected process (no confirmation)."""
+        conn = self._selected_target()
+        if conn is not None:
+            self._kill(conn, force=True)
 
 
-def main():
+def main() -> None:
     """Entry point for the application."""
-    app = PortPilotApp()
-    app.run()
+    PortPilotApp().run()
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
-"""PortPilot package.
-
-This file marks the `portpilot` directory as a Python package so that the
-console scripts defined in `pyproject.toml` (e.g. `portpilot = portpilot.cli:main`)
-can import correctly.
-"""
+"""PortPilot - interactive terminal port manager for developers."""
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 __all__ = ["__version__"]
 
-# Keep in sync with `pyproject.toml` if you manually bump versions.
-__version__ = "0.1.0"
+try:
+    # Single source of truth: the version in pyproject.toml.
+    __version__ = version("portpilot")
+except PackageNotFoundError:  # pragma: no cover - running from a source tree
+    __version__ = "0.0.0+unknown"
