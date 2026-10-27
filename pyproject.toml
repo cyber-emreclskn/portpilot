@@ -57,6 +57,7 @@ dev = [
     "mypy>=1.13",
     "types-psutil",
     "pre-commit>=4.0",
+    "pytest-github-actions-annotate-failures>=0.4.2",
 ]
 
 [tool.hatch.build.targets.sdist]
