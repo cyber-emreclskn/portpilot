@@ -140,8 +140,9 @@ def test_force_kill(listener: Listener) -> None:
 
 
 def test_kill_missing_pid(listener: Listener) -> None:
-    listener.proc.kill()
-    listener.proc.wait()
+    server = psutil.Process(listener.pid)
+    server.kill()
+    server.wait(timeout=5)
     ok, message = core.kill_process(listener.pid)
     assert not ok
     assert "not found" in message
