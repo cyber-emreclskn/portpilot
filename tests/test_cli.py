@@ -4,8 +4,9 @@ import json
 from collections.abc import Callable
 from importlib.metadata import version
 
+import click
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from portpilot.cli import EXIT_CANCELLED, EXIT_ERROR, cli
 
@@ -17,17 +18,22 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def plain(result: Result) -> str:
+    """Output without ANSI styling (CI sets FORCE_COLOR, which Rich honours)."""
+    return click.unstyle(result.output)
+
+
 def test_version_matches_package_metadata(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert version("portpilot") in result.output
+    assert version("portpilot") in plain(result)
 
 
 def test_help_lists_commands(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
     for cmd in ("list", "kill", "killall", "info", "watch"):
-        assert cmd in result.output
+        assert cmd in plain(result)
 
 
 # ------------------------------------------------------------------ list
@@ -43,14 +49,14 @@ def test_list_json_contains_listener(runner: CliRunner, listener: Listener) -> N
 def test_list_table(runner: CliRunner, listener: Listener) -> None:
     result = runner.invoke(cli, ["list", "-p", str(listener.port)])
     assert result.exit_code == 0
-    assert str(listener.pid) in result.output
-    assert "Total: 1" in result.output
+    assert str(listener.pid) in plain(result)
+    assert "Total: 1" in plain(result)
 
 
 def test_list_no_match(runner: CliRunner, free_port: int) -> None:
     result = runner.invoke(cli, ["list", "-p", str(free_port)])
     assert result.exit_code == 0
-    assert "No listening ports" in result.output
+    assert "No listening ports" in plain(result)
 
 
 def test_list_json_no_match_is_empty_array(runner: CliRunner, free_port: int) -> None:
@@ -95,7 +101,7 @@ def test_killall(runner: CliRunner, spawn_listener: Callable[[], Listener]) -> N
 def test_killall_partial(runner: CliRunner, listener: Listener, free_port: int) -> None:
     result = runner.invoke(cli, ["killall", str(listener.port), str(free_port), "-y"])
     assert result.exit_code == 0
-    assert "No killable process" in result.output
+    assert "No killable process" in plain(result)
     assert not listener.is_alive()
 
 
@@ -110,8 +116,8 @@ def test_killall_nothing(runner: CliRunner, free_port: int) -> None:
 def test_info(runner: CliRunner, listener: Listener) -> None:
     result = runner.invoke(cli, ["info", str(listener.port)])
     assert result.exit_code == 0
-    assert f"Port {listener.port} Details" in result.output
-    assert str(listener.pid) in result.output
+    assert f"Port {listener.port} Details" in plain(result)
+    assert str(listener.pid) in plain(result)
 
 
 def test_info_missing(runner: CliRunner, free_port: int) -> None:
@@ -131,5 +137,5 @@ def test_watch_stops_on_ctrl_c(
     monkeypatch.setattr("portpilot.cli.time.sleep", interrupt)
     result = runner.invoke(cli, ["watch", str(listener.port)])
     assert result.exit_code == 0
-    assert str(listener.port) in result.output
-    assert "Stopped watching" in result.output
+    assert str(listener.port) in plain(result)
+    assert "Stopped watching" in plain(result)
