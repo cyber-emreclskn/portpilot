@@ -1,0 +1,90 @@
+name: Announce release
+
+# Called from release.yml after a successful PyPI publish (events created with
+# GITHUB_TOKEN can't trigger `on: release`, so it has to be called directly).
+# Can also be run by hand to re-announce or to post custom text.
+#
+# 1. Adds a "Try it" block (uvx one-liner + demo GIF + a gentle star ask) to the
+#    GitHub release notes.
+# 2. Posts to Bluesky and Mastodon. Each network is optional; without its
+#    secrets it is skipped:
+#      secrets: BLUESKY_HANDLE, BLUESKY_APP_PASSWORD, MASTODON_TOKEN
+#      variable: MASTODON_INSTANCE (e.g. https://fosstodon.org)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to announce (e.g. v0.3.0)
+        type: string
+        required: true
+      message:
+        description: Custom post text (optional; default is built from the release notes)
+        type: string
+        required: false
+      dry-run:
+        description: Only print the posts
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # edit the release notes
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Add a "Try it" section to the release notes
+        run: |
+          gh release view "$TAG" --json body -q .body > notes.md
+          if grep -q '<!-- portpilot:try-it -->' notes.md; then
+            echo "Release notes already have the Try it section"
+            exit 0
+          fi
+          {
+            cat notes.md
+            echo
+            echo '<!-- portpilot:try-it -->'
+            echo '### Try it'
+            echo
+            echo '```bash'
+            echo 'uvx portpilot                # run without installing'
+            echo 'uv tool install portpilot    # or: pipx install portpilot'
+            echo '```'
+            if [ -f docs/demo.gif ]; then
+              echo
+              echo "![PortPilot demo](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/docs/demo.gif)"
+            fi
+            echo
+            # shellcheck disable=SC2016 # literal Markdown backticks
+            echo 'If PortPilot saves you an `lsof | kill` dance, a ⭐ helps other developers find it.'
+          } > notes-new.md
+          gh release edit "$TAG" --notes-file notes-new.md
+
+      - name: Post to social networks
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          MASTODON_INSTANCE: ${{ vars.MASTODON_INSTANCE }}
+          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+          MESSAGE: ${{ inputs.message }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          args=(--tag "$TAG" --notes notes.md)
+          if [ -n "$MESSAGE" ]; then args+=(--message "$MESSAGE"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python3 .github/scripts/announce.py "${args[@]}"

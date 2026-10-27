@@ -1,0 +1,60 @@
+name: Traffic snapshot
+
+# GitHub keeps traffic data for 14 days only. This saves stars, views, clones,
+# referrers and PyPI downloads to the `traffic` branch every day, so after a
+# launch you can see which channel (HN, Reddit, a blog post…) actually worked.
+# Each run's report is on the run page and in the branch's README.md.
+#
+# Views, clones and referrers need a TRAFFIC_TOKEN secret: a fine-grained PAT
+# limited to this repository with "Administration: Read-only". Without it the
+# workflow still records stars and PyPI downloads.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: traffic-snapshot
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the traffic branch
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Check out the traffic branch
+        run: |
+          if git ls-remote --exit-code --heads origin traffic; then
+            git fetch --depth=1 origin traffic
+            git worktree add data FETCH_HEAD
+            git -C data switch -c traffic
+          else
+            git worktree add --orphan -b traffic data
+          fi
+
+      - name: Take snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: python3 .github/scripts/traffic_snapshot.py --out data
+
+      - name: Commit
+        working-directory: data
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "traffic: snapshot $(date -u +%F)"
+          git push origin HEAD:traffic

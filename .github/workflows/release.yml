@@ -74,3 +74,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
+
+  # Visibility: announce only once the package is actually installable.
+  announce:
+    needs: [release-please, publish-pypi]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/announce.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
+
+  demo-gif:
+    needs: [publish-pypi]
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/demo.yml
