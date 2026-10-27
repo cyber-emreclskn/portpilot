@@ -6,7 +6,14 @@
       "package-name": "portpilot",
       "bump-minor-pre-major": true,
       "include-component-in-tag": false,
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='portpilot')].version"
+        }
+      ]
     }
   }
 }
