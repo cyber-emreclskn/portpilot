@@ -1,30 +1,45 @@
 # 🛫 PortPilot
 
+[![CI](https://github.com/cyber-emreclskn/portpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/cyber-emreclskn/portpilot/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/cyber-emreclskn/portpilot/graph/badge.svg)](https://codecov.io/gh/cyber-emreclskn/portpilot)
+[![PyPI](https://img.shields.io/pypi/v/portpilot)](https://pypi.org/project/portpilot/)
+[![Python](https://img.shields.io/pypi/pyversions/portpilot)](https://pypi.org/project/portpilot/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/cyber-emreclskn/portpilot/badge)](https://scorecard.dev/viewer/?uri=github.com/cyber-emreclskn/portpilot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 **Interactive terminal port manager for developers**
 
 Tired of running `lsof -i :3000` and then `kill -9 <pid>` every time? PortPilot gives you a beautiful TUI to see all listening ports and kill them with a keystroke.
 
+![PortPilot TUI](docs/screenshot.svg)
+
+<!-- Regenerate: `uv run python docs/render_screenshot.py` · Animated demo: `vhs docs/demo.tape` -->
+
 ## ✨ Features
 
 - 🖥️ **Interactive TUI** - Navigate with keyboard, search, and kill processes instantly
-- 🔍 **Real-time filtering** - Filter by port, process name, or PID
-- 🎨 **Syntax highlighting** - Common dev ports (3000, 8000, 5432, etc.) are color-coded
-- ⚡ **Quick commands** - CLI mode for scripting and one-liners
+- 🔍 **Real-time filtering** - Filter by port, process name, PID, or command line
+- 🎨 **Highlighting** - Common dev ports (3000, 8000, 5432, etc.) are color-coded
+- ⚡ **Quick commands** - CLI mode with meaningful exit codes for scripting and one-liners
 - 📊 **Detailed info** - See memory usage, start time, command line, and more
 - 👀 **Watch mode** - Monitor specific ports in real-time
+- 💻 **Cross-platform** - Linux, macOS (no `sudo` needed for your own processes) and Windows
 
 ## 📦 Installation
 
 ```bash
+# Recommended: isolated install
+uv tool install portpilot      # or: pipx install portpilot
+
+# Or with pip
 pip install portpilot
 ```
 
-Or install from source:
+Try it without installing:
 
 ```bash
-git clone https://github.com/cyber-emreclskn/portpilot.git
-cd portpilot
-pip install -e .
+uvx portpilot
 ```
 
 ## 🚀 Usage
@@ -44,10 +59,10 @@ pp
 | Key | Action |
 |-----|--------|
 | `↑/↓` | Navigate |
-| `k` | Kill selected process (SIGTERM) |
-| `K` | Force kill (SIGKILL) |
+| `k` | Kill selected process (SIGTERM, with confirmation) |
+| `K` | Force kill (SIGKILL, no confirmation) |
 | `r` | Refresh list |
-| `f` or `/` | Focus filter |
+| `f` or `/` | Focus filter (`Enter` returns to the table) |
 | `Esc` | Clear filter |
 | `q` | Quit |
 
@@ -55,7 +70,6 @@ pp
 
 ```bash
 # List all listening ports
-portpilot list
 pp list
 
 # Filter by port
@@ -82,20 +96,26 @@ pp killall 3000 8000 5432
 # Get detailed info about a port
 pp info 3000
 
-# Watch specific ports
-pp watch 3000 8000
+# Watch specific ports (refresh every second)
+pp watch 3000 8000 -i 1
 
 # Watch all ports
 pp watch
 ```
 
-## 🎨 Port Colors
+### Exit codes
 
-PortPilot highlights common development ports:
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Nothing listening on the port, or the kill failed |
+| `2` | You declined the confirmation prompt |
+
+## 🎨 Port Colors
 
 | Color | Ports | Common Use |
 |-------|-------|------------|
-| 🟢 Green | 3000, 3001 | React, Next.js |
+| 🟢 Green | 3000, 3001, 27017 | React, Next.js, MongoDB |
 | 🟡 Yellow | 8000, 8080 | Django, General |
 | 🔵 Cyan | 5000, 5001 | Flask |
 | 🟣 Magenta | 5432 | PostgreSQL |
@@ -103,10 +123,11 @@ PortPilot highlights common development ports:
 
 ## 🔧 Examples
 
-### Quick port cleanup before starting dev server
+### Free a port before starting a dev server
 
 ```bash
-pp kill 3000 -y && npm run dev
+# `|| true` so the server still starts when nothing was listening
+pp kill 3000 -y || true; npm run dev
 ```
 
 ### Find what's using a port
@@ -130,57 +151,38 @@ if pp list -p 3000 --json | jq -e '.[0]' > /dev/null; then
 fi
 ```
 
+## 🖥️ Platform notes
+
+- **macOS:** listing every socket on the system requires root. Without it, PortPilot automatically falls back to per-process lookup, which shows all ports opened by *your* processes — usually exactly what you need during development. Use `sudo pp` to see system services too.
+- **Linux:** processes owned by other users show up with limited details unless you run with `sudo`.
+- **Windows:** run the terminal as Administrator to inspect or kill services.
+
 ## 🛠️ Development
 
+PortPilot uses [uv](https://docs.astral.sh/uv/) for environments and dependencies.
+
 ```bash
-# Clone the repo
 git clone https://github.com/cyber-emreclskn/portpilot.git
 cd portpilot
+uv sync                       # creates .venv with dev dependencies
+uv run pre-commit install     # ruff + mypy on every commit
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Format code
-black portpilot/
-ruff check portpilot/
+uv run pytest --cov           # tests (unit, CLI and headless TUI)
+uv run ruff check . && uv run ruff format .
+uv run mypy
+uv run portpilot              # run your local checkout
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, including commit message conventions and how releases work.
+
+## 🤝 Contributing
+
+Contributions are welcome! Check the [good first issues](https://github.com/cyber-emreclskn/portpilot/labels/good%20first%20issue) and read [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### How to contribute
-
-1) Fork the repository and create a feature branch:
-- `git checkout -b feature/my-change`
-
-2) Set up a virtual environment and install dev dependencies:
-- `python -m venv venv`
-- Activate it (Windows: `venv\Scripts\activate`, macOS/Linux: `source venv/bin/activate`)
-- `pip install -e ".[dev]"`
-
-3) Run checks before opening a PR:
-- `pytest`
-- `ruff check portpilot/`
-- `black portpilot/`
-
-4) Open a Pull Request against `main` and describe:
-- What changed and why
-- How to test it locally
-
-Maintainer: **Emre Çalışkan**
-
 ---
 
-Made with ❤️ for developers who are tired of port conflicts
+Maintained by **Emre Çalışkan** · Made with ❤️ for developers who are tired of port conflicts
