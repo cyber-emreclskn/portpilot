@@ -1,0 +1,74 @@
+name: Demo GIF
+
+# Renders docs/demo.tape with VHS and opens a PR with the fresh docs/demo.gif.
+# The first run also swaps the README hero from the static SVG to the GIF —
+# an animated demo is what turns a README visitor into a star.
+#
+# Runs when the tape changes, on demand, and after every release (called from
+# release.yml) so the GIF always shows the latest version.
+#
+# Note: PRs opened with GITHUB_TOKEN don't trigger CI. Close and reopen the PR
+# (or push an empty commit to it) to get the required checks.
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/demo.tape]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-gif
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: astral-sh/setup-uv@v10.3.2
+
+      - name: Install portpilot from this checkout
+        run: |
+          uv tool install .
+          uv tool dir --bin >> "$GITHUB_PATH"
+
+      - name: Check the binaries the tape uses
+        run: |
+          pp --version
+          python3 --version
+
+      - uses: charmbracelet/vhs-action@v2.1.1
+        with:
+          path: docs/demo.tape
+
+      - name: Use the GIF as the README hero
+        run: |
+          test -s docs/demo.gif
+          if ! grep -q 'docs/demo.gif' README.md; then
+            sed -i 's|!\[PortPilot TUI\](docs/screenshot.svg)|![PortPilot demo](docs/demo.gif)|' README.md
+          fi
+
+      - uses: peter-evans/create-pull-request@v8.1.1
+        with:
+          branch: docs/demo-gif
+          delete-branch: true
+          add-paths: |
+            docs/demo.gif
+            README.md
+          commit-message: "docs: re-render demo GIF"
+          title: "docs: re-render demo GIF"
+          body: |
+            Re-rendered `docs/demo.gif` from `docs/demo.tape` with VHS.
+
+            Automated by the **Demo GIF** workflow. Close and reopen this PR to run CI.
+          labels: documentation
