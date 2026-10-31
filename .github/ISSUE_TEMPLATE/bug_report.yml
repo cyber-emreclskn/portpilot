@@ -10,6 +10,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: List the setup, commands or TUI keys, and steps needed to reproduce the problem.
+    validations:
+      required: true
+  - type: textarea
     id: expected
     attributes:
       label: What did you expect?
