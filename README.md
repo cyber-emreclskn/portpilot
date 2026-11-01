@@ -1,10 +1,10 @@
-## 📈 PortPilot visibility — 2026-10-31
+## 📈 PortPilot visibility — 2026-11-01
 
 **⭐ 13 stars** · 0 forks
 
 | Metric | Last 7 days | Previous 7 days |
 |---|---:|---:|
-| PyPI downloads | 96 | 2 |
+| PyPI downloads | 99 | 2 |
 
 _Add a `TRAFFIC_TOKEN` secret to also record views, clones and referrers._
 
