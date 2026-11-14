@@ -1,0 +1,64 @@
+name: Packaging
+
+# Installs PortPilot through the Homebrew formula and the AUR PKGBUILD for real,
+# so a broken package never reaches users.
+
+on:
+  pull_request:
+    paths:
+      - Formula/**
+      - packaging/**
+      - .github/workflows/packaging.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  homebrew:
+    name: Homebrew (macOS)
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install from the formula in this checkout
+        run: |
+          tap="$(brew --repository)/Library/Taps/local/homebrew-portpilot"
+          mkdir -p "$tap/Formula"
+          cp Formula/portpilot.rb "$tap/Formula/"
+          brew install --build-from-source local/portpilot/portpilot
+      - run: brew test local/portpilot/portpilot
+      - run: |
+          portpilot --version
+          pp --version
+
+  aur:
+    name: AUR PKGBUILD (Arch Linux)
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build and runtime dependencies
+        run: >
+          pacman -Syu --noconfirm --needed
+          python python-build python-installer python-hatchling
+          python-textual python-rich python-click python-psutil
+      - name: Build the package as an unprivileged user
+        run: |
+          useradd -m builder
+          cp -r packaging/aur /home/builder/pkg
+          chown -R builder /home/builder/pkg
+          cd /home/builder/pkg
+          sudo -u builder makepkg -f --noconfirm
+          sudo -u builder makepkg --printsrcinfo
+      - name: Install and run
+        run: |
+          pacman -U --noconfirm /home/builder/pkg/*.pkg.tar.zst
+          portpilot --version
+          pp --version
