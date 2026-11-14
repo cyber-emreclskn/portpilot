@@ -42,6 +42,21 @@ Try it without installing:
 uvx portpilot
 ```
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap cyber-emreclskn/portpilot https://github.com/cyber-emreclskn/portpilot
+brew install portpilot
+```
+
+### Arch Linux
+
+A `PKGBUILD` lives in [`packaging/aur`](packaging/aur):
+
+```bash
+cd packaging/aur && makepkg -si
+```
+
 ## 🚀 Usage
 
 ### Interactive TUI
@@ -177,7 +192,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, including commit m
 
 ## 🤝 Contributing
 
-Contributions are welcome! Check the [good first issues](https://github.com/cyber-emreclskn/portpilot/labels/good%20first%20issue) and read [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+Contributions are welcome! Questions and ideas go to [Discussions](https://github.com/cyber-emreclskn/portpilot/discussions). Check the [good first issues](https://github.com/cyber-emreclskn/portpilot/labels/good%20first%20issue) and read [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## 📄 License
 

@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 💬 Ask a question or share an idea
+    url: https://github.com/cyber-emreclskn/portpilot/discussions
+    about: Usage questions and feature ideas are best discussed in Discussions.
   - name: 🔒 Report a security vulnerability
     url: https://github.com/cyber-emreclskn/portpilot/security/advisories/new
     about: Please report security issues privately.
