@@ -1,0 +1,29 @@
+# Maintainer: Emre Çalışkan <osmancalskan7@gmail.com>
+#
+# Publish to the AUR (needs an AUR account and SSH key):
+#   git clone ssh://aur@aur.archlinux.org/portpilot.git aur-portpilot
+#   cp PKGBUILD aur-portpilot/ && cd aur-portpilot
+#   makepkg --printsrcinfo > .SRCINFO
+#   git add PKGBUILD .SRCINFO && git commit -m "portpilot 0.2.0" && git push
+pkgname=portpilot
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Interactive terminal port manager: list, inspect and kill listening ports"
+arch=('any')
+url="https://github.com/cyber-emreclskn/portpilot"
+license=('MIT')
+depends=('python' 'python-textual' 'python-rich' 'python-click' 'python-psutil')
+makedepends=('python-build' 'python-installer' 'python-hatchling')
+source=("https://files.pythonhosted.org/packages/source/p/portpilot/portpilot-$pkgver.tar.gz")
+sha256sums=('9c1f5ba587db79ad26723139f8351faa2acc021c787218e4493ce7b1d0d10df7')
+
+build() {
+  cd "portpilot-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "portpilot-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
